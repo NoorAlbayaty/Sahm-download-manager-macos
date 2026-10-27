@@ -1,1 +1,63 @@
+name: Build Windows and macOS
 
+on:
+  push:
+    branches: [main]          # every change: test builds (download from the Actions tab)
+  release:
+    types: [published]        # publishing a release: build and attach all downloads to it
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build app, bundle video tools, build installer
+        run: python build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sahm-Windows
+          path: |
+            dist/Sahm-Setup.exe
+            dist/Sahm-Portable.zip
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/Sahm-Setup.exe dist/Sahm-Portable.zip --clobber
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15          # Apple Silicon (M1-M4)
+            label: AppleSilicon
+          - runner: macos-15-intel    # older Intel Macs
+            label: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Sahm.app, bundle video tools, make the .dmg
+        run: python build.py
+        # To sign + notarize later: add a Developer ID certificate and set MAC_SIGN_IDENTITY here.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sahm-macOS-${{ matrix.label }}
+          path: dist/Sahm-macOS-${{ matrix.label }}.dmg
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "dist/Sahm-macOS-${{ matrix.label }}.dmg" --clobber
